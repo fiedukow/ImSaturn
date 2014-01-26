@@ -17,6 +17,8 @@
 #include <sstream>
 #define M_PI 3.14159265358979323846
 #include <cmath>
+#include <cassert>
+#include <set>
 
 #include "dibdoc.h"
 #include "dibview.h"
@@ -385,7 +387,11 @@ void CDibDoc::DoLab2(CView* view) {
 	UpdateAllViews(NULL);
 }
 
-void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2, int green_value) {
+bool isLogoPart(RGBTRIPLE px) {
+	return gray(px) > 230;
+}
+
+void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2) {
 	*x2 = *y2 = 0;
 	*x1 = width - 1;
 	*y1 = height - 1;
@@ -393,7 +399,7 @@ void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int
 	for (int x = 0; x < width; ++x)
 	for (int y = 0; y < height; ++y)
 	{
-		if (rows[y][x].rgbtGreen == green_value) {
+		if (isLogoPart(rows[y][x])) {
 			if (x < *x1) *x1 = x;
 			if (x > *x2) *x2 = x;
 			if (y < *y1) *y1 = y;
@@ -406,7 +412,7 @@ double mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int green_value, do
 	double result = 0.0;
 	for (int x = x1; x <= x2; ++x)
 	for (int y = y1; y <= y2; ++y)
-		result += pow((double)x, p)*pow((double)y, q)*((rows[y][x].rgbtGreen == green_value) ? 1.0 : 0.0);
+		result += pow((double)x, p)*pow((double)y, q)*(isLogoPart(rows[y][x]) ? 1.0 : 0.0);
 	return result;
 }
 
@@ -414,99 +420,130 @@ double Mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, double ax, double a
 	double result = 0.0;
 	for (int x = x1; x <= x2; ++x)
 	for (int y = y1; y <= y2; ++y)
-		result += pow((double)x - ax, p)*pow((double)y - ay, q)*((rows[y][x].rgbtGreen == green_value) ? 1.0 : 0.0);
+		result += pow((double)x - ax, p)*pow((double)y - ay, q)*(isLogoPart(rows[y][x]) ? 1.0 : 0.0);
 	return result;
+}
+
+const RGBTRIPLE SEGMENTS[] = { {  0,   0, 255}, {255,   0,   0}, {  0, 255,   0},
+  					           {255, 255,   0}, {  0, 255, 255}, {255,   0, 255} };
+const RGBTRIPLE WHITE = { 255, 255, 255 };
+const RGBTRIPLE BLACK = { 0, 0, 0 };
+
+RGBTRIPLE segment_color = { 0, 0, 0 };
+int segment_counter = 0;
+
+RGBTRIPLE getNextSegmentColor() {
+	segment_color.rgbtRed++;
+	if (segment_color.rgbtRed == 0)
+		segment_color.rgbtGreen++;
+	if (segment_color.rgbtGreen == 0)
+		segment_color.rgbtBlue++;
+	//FIXME OVERFLOW... LOL
+	segment_counter++;
+	return segment_color;
+}
+
+void ToBnW(RGBTRIPLE** rows, int width, int height) {
+	for (int x = 0; x < width; ++x)
+	for (int y = 0; y < height; ++y)
+	{
+		if (isLogoPart(rows[y][x]))
+			rows[y][x] = WHITE;
+		else
+			rows[y][x] = BLACK;
+	}
+}
+
+bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
+	return first.rgbtBlue  == second.rgbtBlue  &&
+		   first.rgbtGreen == second.rgbtGreen &&
+		   first.rgbtRed   == second.rgbtRed;
+}
+
+bool operator!=(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
+	return !(first == second);
+}
+
+void Recolor(RGBTRIPLE** rows, int x_b, int y_b, int width, int height, RGBTRIPLE color/* int level = 0, bool above = false*/) {
+	std::set<std::pair<int, int>> todo;
+	todo.insert(std::make_pair(x_b, y_b));
+	while (!todo.empty()) {
+		int x = (*todo.begin()).first;
+		int y = (*todo.begin()).second;
+		todo.erase(todo.begin());
+		rows[y][x] = color;
+		if (y > 0) {
+			RGBTRIPLE top = rows[y - 1][x];
+			if (top != color && top != BLACK)
+				todo.insert(std::make_pair(x, y - 1));
+		}
+		if (x > 0) {
+			RGBTRIPLE left = rows[y][x - 1];
+			if (left != color && left != BLACK)
+				todo.insert(std::make_pair(x - 1, y));
+		}
+		if (y < (height - 1)) {
+			RGBTRIPLE bottom = rows[y + 1][x];
+			if (bottom != color && bottom != BLACK)
+				todo.insert(std::make_pair(x, y + 1));
+		}
+		if (x < (width - 1)) {
+			RGBTRIPLE right = rows[y][x + 1];			
+			if (right != color && right != BLACK)
+				todo.insert(std::make_pair(x + 1, y));
+		}
+	}
+}
+
+void SegmentsMarker(RGBTRIPLE** rows, int width, int height) {	
+	int segment = 0;	
+	for (int x = 0, y = 0; y < height; ++y)
+		rows[y][x] = BLACK;
+	for (int x = 0, y = 0; x < width; ++x)
+		rows[y][x] = BLACK;
+
+	for (int x = 1; x < width; ++x)
+	for (int y = 1; y < height; ++y) {
+		const RGBTRIPLE this_color = rows[y][x];
+		if (this_color == BLACK)
+			continue;
+		
+		RGBTRIPLE top = rows[y-1][x];
+		RGBTRIPLE left = rows[y][x-1];
+		if (top != BLACK && left != BLACK &&
+			top != left) {
+			rows[y][x] = top;
+			Recolor(rows, x-1, y, width, height, top);
+		} else if (top != BLACK) {
+			rows[y][x] = top;
+		} else if (left != BLACK) {
+			rows[y][x] = left;
+		} else {
+			rows[y][x] = getNextSegmentColor();
+		}
+		assert(rows[y][x] == top || top == BLACK);
+	}
 }
 
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
-	ss << "Green value: " << green_value << "\r\n";
 	trace(ss.str().c_str());
 	RGBTRIPLE* rows[1000];
 	int width, height;
 	if (!GetDIBRowsRGB(m_hDIB,rows,&width,&height))
 		return;
-	int x1, y1, x2, y2;
-	BoundingRect(rows, width, height, &x1, &y1, &x2, &y2, green_value);
-	ss.str(""); ss.clear();
-	ss << "Bounding rectangle: (" << x1 << ", " << y1 << ") x (" << x2 << ", " << y2 << ");" << "\r\n";
-	trace(ss.str().c_str());
-	const RGBTRIPLE red = {0, green_value, 255};
-	const RGBTRIPLE blue = {255, green_value, 0};
-
-	// POLE
-	int s = 0;
-	for (int x = x1; x <= x2; ++x)
-	for (int y = y1; y <= y2; ++y)
-		if (rows[y][x].rgbtGreen == green_value)
-			++s;
-	ss.str(""); ss.clear();
-	ss << "Pole S = " << s << "\r\n";
-	trace(ss.str().c_str());
-	
-	// OBWOD
-	int l = 0;
-	for (int x = x1; x <= x2; ++x)
-	for (int y = y1; y <= y2; ++y)
-		if (rows[y][x].rgbtGreen == green_value &&
-			(rows[max(0, y)][max(0, x - 1)].rgbtGreen != green_value ||
-			rows[min(height, y)][min(width, x + 1)].rgbtGreen != green_value ||
-			rows[max(0, y - 1)][max(0, x)].rgbtGreen != green_value ||
-			rows[min(height, y + 1)][min(width, x)].rgbtGreen != green_value)) {
-			++l;
-			rows[y][x] = red;
-		}
-	ss.str(""); ss.clear();
-	ss << "Obwod L = " << l << "\r\n";
-	trace(ss.str().c_str());
-
-	// W3
-	double w3 = (l / (2 * sqrt(M_PI*s))) - 1;
-	ss.str(""); ss.clear();
-	ss << "W3 = " << w3 << "\r\n";
-	trace(ss.str().c_str());
-
-	// M3
-#define m(p,q) mpq(rows,x1,y1,x2,y2,green_value,(p),(q))
-#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,green_value,(p),(q))
-#define N(p,q) M((p),(q))/pow(m(0,0), (((p)+(q))/2) + 1)
-	double sm = m(0,0);
-	double ay = m(0,1)/sm;
-	double ax = m(1,0)/sm;	
-	ss.str(""); ss.clear();
-	ss << "Srodek Ciezkosci = (" << ax << ", " << ay << "); Pole z mpq = " << sm << "\r\n";
-	trace(ss.str().c_str());
-
-	double M3 = pow((N(3.0,0.0) - 3.0*N(1.0,2.0)), 2.0) + pow((3.0*N(2.0,1.0) - N(0.0,3.0)), 2.0);
-	double M7 = N(2.0,0.0)*N(0.0,2.0) - pow(N(1.0,1.0),2.0);
-	ss.str(""); ss.clear();
-	ss << "M3 = " << M3 << "; M7 = " << M7 << ";\r\n";
-	trace(ss.str().c_str());
-
-	double bbmx = ((x2-x1)/2) + x1;
-	double bbmy = ((y2-y1)/2) + y1;
-	ss.str(""); ss.clear();
-	ss << "Srodek bounding boxa = (" << bbmx << ", " << bbmy << ");\r\n";
-	trace(ss.str().c_str());
-
-	double rd = atan((bbmx-ax)/(bbmy-ay));
-	ss.str(""); ss.clear();
-	ss << "Kat  = " << (rd/(2*M_PI))*360 << "\r\n";
-	trace(ss.str().c_str());
-
-	rows[min(max(0,(int)ay),height-1)][min(max(0,(int)ax),width-1)] = blue;
-	rows[min(max(0,(int)bbmy),height-1)][min(max(0,(int)bbmx),width-1)] = red;
-
-	ss.str(""); ss.clear();
-	ss << "===================================================================\r\n\r\n";
-	trace(ss.str().c_str());
+	ToBnW(rows, width, height);
+	SegmentsMarker(rows, width, height);
+//
+//#define m(p,q) mpq(rows,x1,y1,x2,y2,green_value,(p),(q))
+//#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,green_value,(p),(q))
+//#define N(p,q) M((p),(q))/pow(m(0,0), (((p)+(q))/2) + 1)
+//	double W3 = (l / (2 * sqrt(M_PI*s))) - 1;
+//	double M3 = pow((N(3.0,0.0) - 3.0*N(1.0,2.0)), 2.0) + pow((3.0*N(2.0,1.0) - N(0.0,3.0)), 2.0);
+//	double M7 = N(2.0,0.0)*N(0.0,2.0) - pow(N(1.0,1.0),2.0);
 }
 
 void CDibDoc::ConvertToBlockedImage(CView * view)
 {	
-	BnWCalculate(view, 180);
-	BnWCalculate(view, 135);
-	BnWCalculate(view, 90);
-	BnWCalculate(view, 45);	
-	BnWCalculate(view, 0);
+	BnWCalculate(view, 255);
 }
