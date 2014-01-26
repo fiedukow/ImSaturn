@@ -33,7 +33,7 @@ public:
 	void DoLab2(CView *view);
 	void BnWCalculate(CView * view, int green_value);
 	void Field(CView* view, int green_value);
-	void BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2);
+	void BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2, RGBTRIPLE color);
 	void ConvertToBlockedImage(CView *view);
 	void trace(LPCSTR msg);
 	void DoNothing(CView *view);

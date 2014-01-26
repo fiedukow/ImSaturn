@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cassert>
 #include <set>
+#include <limits>
+#include <iomanip>
 
 #include "dibdoc.h"
 #include "dibview.h"
@@ -388,10 +390,20 @@ void CDibDoc::DoLab2(CView* view) {
 }
 
 bool isLogoPart(RGBTRIPLE px) {
-	return gray(px) > 230;
+	return gray(px) > 220;
 }
 
-void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2) {
+bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
+	return first.rgbtBlue  == second.rgbtBlue  &&
+		   first.rgbtGreen == second.rgbtGreen &&
+		   first.rgbtRed   == second.rgbtRed;
+}
+
+bool operator!=(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
+	return !(first == second);
+}
+
+void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int* y1, int* x2, int* y2, RGBTRIPLE color) {
 	*x2 = *y2 = 0;
 	*x1 = width - 1;
 	*y1 = height - 1;
@@ -399,7 +411,7 @@ void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int
 	for (int x = 0; x < width; ++x)
 	for (int y = 0; y < height; ++y)
 	{
-		if (isLogoPart(rows[y][x])) {
+		if (rows[y][x] == color) {
 			if (x < *x1) *x1 = x;
 			if (x > *x2) *x2 = x;
 			if (y < *y1) *y1 = y;
@@ -408,19 +420,19 @@ void CDibDoc::BoundingRect(RGBTRIPLE** rows, int width, int height, int* x1, int
 	}
 }
 
-double mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int green_value, double p, double q) {
+double mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, RGBTRIPLE color, double p, double q) {
 	double result = 0.0;
 	for (int x = x1; x <= x2; ++x)
 	for (int y = y1; y <= y2; ++y)
-		result += pow((double)x, p)*pow((double)y, q)*(isLogoPart(rows[y][x]) ? 1.0 : 0.0);
+		result += pow((double)x, p)*pow((double)y, q)*((rows[y][x] == color) ? 1.0 : 0.0);
 	return result;
 }
 
-double Mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, double ax, double ay, int green_value, double p, double q) {
+double Mpq(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, double ax, double ay, RGBTRIPLE color, double p, double q) {
 	double result = 0.0;
 	for (int x = x1; x <= x2; ++x)
 	for (int y = y1; y <= y2; ++y)
-		result += pow((double)x - ax, p)*pow((double)y - ay, q)*(isLogoPart(rows[y][x]) ? 1.0 : 0.0);
+		result += pow((double)x - ax, p)*pow((double)y - ay, q)*((rows[y][x] == color) ? 1.0 : 0.0);
 	return result;
 }
 
@@ -429,15 +441,15 @@ const RGBTRIPLE SEGMENTS[] = { {  0,   0, 255}, {255,   0,   0}, {  0, 255,   0}
 const RGBTRIPLE WHITE = { 255, 255, 255 };
 const RGBTRIPLE BLACK = { 0, 0, 0 };
 
-RGBTRIPLE segment_color = { 0, 0, 0 };
 int segment_counter = 0;
 
-RGBTRIPLE getNextSegmentColor() {
+RGBTRIPLE getNextSegmentColor(RGBTRIPLE& segment_color) {
 	segment_color.rgbtRed++;
-	if (segment_color.rgbtRed == 0)
+	if (segment_color.rgbtRed == 0) {
 		segment_color.rgbtGreen++;
-	if (segment_color.rgbtGreen == 0)
-		segment_color.rgbtBlue++;
+		if (segment_color.rgbtGreen == 0)
+			segment_color.rgbtBlue++;
+	}
 	//FIXME OVERFLOW... LOL
 	segment_counter++;
 	return segment_color;
@@ -452,16 +464,6 @@ void ToBnW(RGBTRIPLE** rows, int width, int height) {
 		else
 			rows[y][x] = BLACK;
 	}
-}
-
-bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
-	return first.rgbtBlue  == second.rgbtBlue  &&
-		   first.rgbtGreen == second.rgbtGreen &&
-		   first.rgbtRed   == second.rgbtRed;
-}
-
-bool operator!=(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
-	return !(first == second);
 }
 
 void Recolor(RGBTRIPLE** rows, int x_b, int y_b, int width, int height, RGBTRIPLE color/* int level = 0, bool above = false*/) {
@@ -495,8 +497,9 @@ void Recolor(RGBTRIPLE** rows, int x_b, int y_b, int width, int height, RGBTRIPL
 	}
 }
 
-void SegmentsMarker(RGBTRIPLE** rows, int width, int height) {	
-	int segment = 0;	
+int SegmentsMarker(RGBTRIPLE** rows, int width, int height) {	
+	int segments = 0;
+	RGBTRIPLE segment_color = { 0, 0, 0 };
 	for (int x = 0, y = 0; y < height; ++y)
 		rows[y][x] = BLACK;
 	for (int x = 0, y = 0; x < width; ++x)
@@ -519,28 +522,70 @@ void SegmentsMarker(RGBTRIPLE** rows, int width, int height) {
 		} else if (left != BLACK) {
 			rows[y][x] = left;
 		} else {
-			rows[y][x] = getNextSegmentColor();
+			rows[y][x] = getNextSegmentColor(segment_color);
+			segments++;
 		}
 		assert(rows[y][x] == top || top == BLACK);
 	}
+	return segments;
 }
+
+void RecolorSegment(RGBTRIPLE** rows, int width, int height, RGBTRIPLE from, RGBTRIPLE to) {
+	for (int x = 0; x < width; ++x)
+	for (int y = 0; y < height; ++y) {
+		if (rows[y][x] == from)
+			rows[y][x] = to;
+	}
+}
+
+#define m(p,q) mpq(rows,x1,y1,x2,y2,segment_color,(p),(q))
+#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,segment_color,(p),(q))
+#define N(p,q) M((p),(q))/pow(m(0,0), (((p)+(q))/2) + 1)
 
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
-	trace(ss.str().c_str());
+
 	RGBTRIPLE* rows[1000];
 	int width, height;
 	if (!GetDIBRowsRGB(m_hDIB,rows,&width,&height))
 		return;
 	ToBnW(rows, width, height);
-	SegmentsMarker(rows, width, height);
-//
-//#define m(p,q) mpq(rows,x1,y1,x2,y2,green_value,(p),(q))
-//#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,green_value,(p),(q))
-//#define N(p,q) M((p),(q))/pow(m(0,0), (((p)+(q))/2) + 1)
-//	double W3 = (l / (2 * sqrt(M_PI*s))) - 1;
-//	double M3 = pow((N(3.0,0.0) - 3.0*N(1.0,2.0)), 2.0) + pow((3.0*N(2.0,1.0) - N(0.0,3.0)), 2.0);
-//	double M7 = N(2.0,0.0)*N(0.0,2.0) - pow(N(1.0,1.0),2.0);
+	int segments_found = SegmentsMarker(rows, width, height);
+	RGBTRIPLE segment_color = { 0, 0, 0 };
+	int big = 0;
+	for (int i = 0; i < segments_found; ++i) {
+		getNextSegmentColor(segment_color);
+		int x1, y1, x2, y2;
+		BoundingRect(rows, width, height, &x1, &y1, &x2, &y2, segment_color);
+	 	double sm = m(0,0);
+	 	double ay = m(0,1)/sm;
+	 	double ax = m(1,0)/sm;	
+		if (sm > 200) {
+	 		ss.str(""); ss.clear();			
+	 		ss << "Srodek Ciezkosci = (" << ax << ", " << ay << "); Pole z mpq = " << sm << "\r\n";
+	 		trace(ss.str().c_str());
+			double M1 = N(2.0, 0.0) + N(0.0, 2.0);
+			double M2 = pow(N(2.0, 0.0) - N(0.0, 2.0), 2) + 4 * pow(N(1.0, 1.0), 2);
+			double M3 = pow((N(3.0,0.0) - 3.0*N(1.0,2.0)), 2.0) + pow((3.0*N(2.0,1.0) - N(0.0,3.0)), 2.0);			
+			double M4 = pow(N(3.0, 0.0) + N(1.0, 2.0), 2) + pow(N(2.0, 1.0) + N(0.0, 3.0), 2);
+			double M7 = N(2.0,0.0)*N(0.0,2.0) - pow(N(1.0,1.0),2.0);			
+			double M8 = N(3.0,0.0)*N(1.0,2.0) + N(2.0, 1.0)*N(0.0,3.0) - pow(N(1.0, 2.0), 2) - pow(N(2.0, 1.0), 2);
+
+			ss.str(""); ss.clear();
+			ss << std::fixed << std::setprecision(10) << std::showpoint 
+				<< "M1 = " << M1
+				<< "; M2 = " << M2
+				<< "; M3 = " << M3
+				<< "; M4 = " << M4 
+				<< "; M7 = " << M7 
+				<< "; M8 = " << M8
+				<< ";\r\n";
+			trace(ss.str().c_str());
+			RecolorSegment(rows, width, height, segment_color, SEGMENTS[big++%6]);
+		} else {
+			RecolorSegment(rows, width, height, segment_color, BLACK);
+		}
+	}
 }
 
 void CDibDoc::ConvertToBlockedImage(CView * view)
