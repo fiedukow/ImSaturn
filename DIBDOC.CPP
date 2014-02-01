@@ -390,7 +390,7 @@ void CDibDoc::DoLab2(CView* view) {
 }
 
 bool isLogoPart(RGBTRIPLE px) {
-	return gray(px) > 220;
+	return gray(px) > 210;
 }
 
 bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
@@ -499,7 +499,7 @@ void Recolor(RGBTRIPLE** rows, int x_b, int y_b, int width, int height, RGBTRIPL
 
 int SegmentsMarker(RGBTRIPLE** rows, int width, int height) {	
 	int segments = 0;
-	RGBTRIPLE segment_color = { 0, 0, 0 };
+	RGBTRIPLE segment_color = { 127, 0, 0 };
 	for (int x = 0, y = 0; y < height; ++y)
 		rows[y][x] = BLACK;
 	for (int x = 0, y = 0; x < width; ++x)
@@ -538,9 +538,56 @@ void RecolorSegment(RGBTRIPLE** rows, int width, int height, RGBTRIPLE from, RGB
 	}
 }
 
+#define S_N2_MIN 0.03800
+#define A_N2_MIN 0.02375
+#define T_N2_MIN 0.10735
+#define U_N2_MIN 0.01805
+#define R_N2_MIN 0.02185
+#define N_N2_MIN 0.00560
+
+#define S_N2_MAX 0.04200
+#define A_N2_MAX 0.02625
+#define T_N2_MAX 0.11865
+#define U_N2_MAX 0.01995
+#define R_N2_MAX 0.02415
+#define N_N2_MAX 0.00840
+
+char letter(double m2) {
+	if (m2 >= S_N2_MIN && m2 <= S_N2_MAX)
+		return 'S';
+	if (m2 >= A_N2_MIN && m2 <= A_N2_MAX)
+		return 'A';
+	if (m2 >= T_N2_MIN && m2 <= T_N2_MAX)
+		return 'T';
+	if (m2 >= U_N2_MIN && m2 <= U_N2_MAX)
+		return 'U';
+	if (m2 >= R_N2_MIN && m2 <= R_N2_MAX)
+		return 'R';
+	if (m2 >= N_N2_MIN && m2 <= N_N2_MAX)
+		return 'N';
+
+	return 'X';
+}
+
+double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height, RGBTRIPLE color) {
+  // OBWOD
+  int l = 0;
+  for (int x = x1; x <= x2; ++x)
+  for (int y = y1; y <= y2; ++y)
+    if (rows[y][x] == color &&
+      (rows[max(0, y)][max(0, x - 1)] != color ||
+      rows[min(height, y)][min(width, x + 1)] != color ||
+      rows[max(0, y - 1)][max(0, x)] != color ||
+      rows[min(height, y + 1)][min(width, x)] != color)) {
+      ++l;
+      //rows[y][x] = red;
+    }
+  return l;  
+}
+
 #define m(p,q) mpq(rows,x1,y1,x2,y2,segment_color,(p),(q))
 #define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,segment_color,(p),(q))
-#define N(p,q) M((p),(q))/pow(m(0,0), (((p)+(q))/2) + 1)
+#define N(p,q) M(((double)p),((double)q))/pow(m(0,0), ((((double)p)+((double)q))/2) + 1)
 
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
@@ -551,7 +598,7 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 		return;
 	ToBnW(rows, width, height);
 	int segments_found = SegmentsMarker(rows, width, height);
-	RGBTRIPLE segment_color = { 0, 0, 0 };
+	RGBTRIPLE segment_color = { 127, 0, 0 };
 	int big = 0;
 	for (int i = 0; i < segments_found; ++i) {
 		getNextSegmentColor(segment_color);
@@ -559,33 +606,47 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 		BoundingRect(rows, width, height, &x1, &y1, &x2, &y2, segment_color);
 	 	double sm = m(0,0);
 	 	double ay = m(0,1)/sm;
-	 	double ax = m(1,0)/sm;	
-		if (sm > 200) {
-	 		ss.str(""); ss.clear();			
-	 		ss << "Srodek Ciezkosci = (" << ax << ", " << ay << "); Pole z mpq = " << sm << "\r\n";
-	 		trace(ss.str().c_str());
-			double M1 = N(2.0, 0.0) + N(0.0, 2.0);
-			double M2 = pow(N(2.0, 0.0) - N(0.0, 2.0), 2) + 4 * pow(N(1.0, 1.0), 2);
-			double M3 = pow((N(3.0,0.0) - 3.0*N(1.0,2.0)), 2.0) + pow((3.0*N(2.0,1.0) - N(0.0,3.0)), 2.0);			
-			double M4 = pow(N(3.0, 0.0) + N(1.0, 2.0), 2) + pow(N(2.0, 1.0) + N(0.0, 3.0), 2);
-			double M7 = N(2.0,0.0)*N(0.0,2.0) - pow(N(1.0,1.0),2.0);			
-			double M8 = N(3.0,0.0)*N(1.0,2.0) + N(2.0, 1.0)*N(0.0,3.0) - pow(N(1.0, 2.0), 2) - pow(N(2.0, 1.0), 2);
+	 	double ax = m(1,0)/sm;			
 
+		//if (sm > 200) {
+		if (sm > 73 && sm < 150) {
+			double l = L(rows, x1, y1, x2, y2, width, height, segment_color);
+			double W3 = (l / (2 * sqrt(M_PI*sm))) - 1;
 			ss.str(""); ss.clear();
-			ss << std::fixed << std::setprecision(10) << std::showpoint 
-				<< "M1 = " << M1
-				<< "; M2 = " << M2
-				<< "; M3 = " << M3
-				<< "; M4 = " << M4 
-				<< "; M7 = " << M7 
-				<< "; M8 = " << M8
-				<< ";\r\n";
+			ss << W3 << "\r\n";
 			trace(ss.str().c_str());
+	 		//ss.str(""); ss.clear();			
+	 		//ss << "Srodek Ciezkosci = (" << ax << ", " << ay << "); Pole z mpq = " << sm << "\r\n";
+	 		//trace(ss.str().c_str());
+			
+			double NM[11]; //ZERO WILL NOT BE USED
+			NM[1] = N(2, 0) + N(0, 2);
+			NM[2] = pow(N(2,0) - N(0,2), 2) + 4 * pow(N(1,1), 2);			
+			NM[3] = pow(N(3,0) - 3*N(1,2), 2) + pow(3*N(2,1) - N(0,3), 2);			
+			NM[4] = pow(N(3,0) + N(1,2), 2) + pow(N(2,1) + N(0,3), 2);
+			NM[5] = (N(3,0) - 3*N(1,2))*(N(3,0) + N(1,2))*(pow(N(3,0) + N(1,2), 2)- 3*pow(N(2,1) + N(0,3), 2)) + (3*N(2,1) - N(0,3))*(N(2,1)+N(0,3))*(3*pow(N(3,0) + N(1,2), 2) - pow(N(2,1) + N(0,3), 2));
+			NM[6] = (N(2,0) - N(0,2))*(pow(N(3,0) + N(1,2), 2) -pow(N(2,1) + N(0,3),2)) + 4*N(1,1)*(N(3,0) + N(1,2))*(N(2,1) + N(0,3));
+			NM[7] = N(2,0)*N(0,2) - pow(N(1,1),2);			
+			NM[8] = N(3,0)*N(1,2) + N(2,1)*N(0,3) - pow(N(1,2), 2) - pow(N(2,1), 2);
+			NM[9] = N(2,0)*(N(2,1)*N(0,3) - pow(N(1,2), 2)) + N(0,2)*(N(3,0)*N(1,2) - pow(N(2,1), 2)) - N(1,1)*(N(3,0)*N(0,3) - N(2,1)*N(1,2));
+			NM[10] = pow(N(3,0)*N(0,3) - N(1,2)*N(2,1), 2) - 4*(N(3,0)*N(1,2) - pow(N(2,1), 2))*(N(0,3)*N(2,1) - N(1,2));
+			char leter = letter(NM[2]);		
+
+			/*ss.str(""); ss.clear();
+			for (int i = 1; i <= 10; ++i)
+				ss << std::fixed << std::setprecision(10) << std::showpoint 
+				   << NM[i] << "\t";
+			ss << "\r\n";
+			trace(ss.str().c_str());*/
+			
 			RecolorSegment(rows, width, height, segment_color, SEGMENTS[big++%6]);
 		} else {
 			RecolorSegment(rows, width, height, segment_color, BLACK);
 		}
 	}
+	ss.str(""); ss.clear();
+	ss << "\r\n";
+	trace(ss.str().c_str());
 }
 
 void CDibDoc::ConvertToBlockedImage(CView * view)
