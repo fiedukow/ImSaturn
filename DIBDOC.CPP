@@ -22,6 +22,7 @@
 #include <limits>
 #include <iomanip>
 #include <map>
+#include <vector>
 
 #include "dibdoc.h"
 #include "dibview.h"
@@ -391,7 +392,7 @@ void CDibDoc::DoLab2(CView* view) {
 }
 
 bool isLogoPart(RGBTRIPLE px) {
-	return gray(px) > 220;
+	return gray(px) > 210;
 }
 
 bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
@@ -573,9 +574,29 @@ double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height
 	ax = m(1,0)/sm; \
 
 
+struct SegmentData {
+	RGBTRIPLE color;
+	int x1,y1,x2,y2;
+	double ax, ay;
+	char letter;
+};
+
+struct SATURN {
+	SegmentData S, A, T, U, R, N;
+};
+
+bool isBetween(const SegmentData& what, const SegmentData& first, const SegmentData& second) {
+	double a, b, d;
+	a = (second.ay - first.ay)/(second.ax - first.ax);
+	b = first.ay - first.ax*a;
+	d = std::abs(-a*what.ax + what.ay - b)/sqrt(pow(a,2) + 1);
+	return d < 15;
+}
+
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
-	std::map<char, RGBTRIPLE> letter_segments;
+	std::map<char, std::vector<SegmentData>> letter_segments;
+	std::vector<SATURN> saturns;
 
 	RGBTRIPLE* rows[1000];
 	int width, height;
@@ -587,7 +608,7 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	int big = 0;
 	for (int i = 0; i < segments_found; ++i) {
 		PREPARE_MOMENTUM_MACROS(getNextSegmentColor(segment_color));
-		if (sm > 15) { // SEGMENTY O POLU PONI¯EJ 16px S¥ IGNOROWANE JAKO SZUM
+		if (sm > 15) { // SEGMENTS BELOW 16px ARE TREATED AS NOISE
 			double NM[11]; //ZERO WILL NOT BE USED
 			NM[1] = N(2, 0) + N(0, 2);
 			NM[2] = pow(N(2,0) - N(0,2), 2) + 4 * pow(N(1,1), 2);			
@@ -600,18 +621,52 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 			NM[9] = N(2,0)*(N(2,1)*N(0,3) - pow(N(1,2), 2)) + N(0,2)*(N(3,0)*N(1,2) - pow(N(2,1), 2)) - N(1,1)*(N(3,0)*N(0,3) - N(2,1)*N(1,2));
 			NM[10] = pow(N(3,0)*N(0,3) - N(1,2)*N(2,1), 2) - 4*(N(3,0)*N(1,2) - pow(N(2,1), 2))*(N(0,3)*N(2,1) - N(1,2));
 			char leter = letter(NM);
+			SegmentData data = { segment_color, x1, y1, x2, y2, ax, ay, leter };
+			letter_segments[leter].push_back(data);
 
 			ss.str(""); ss.clear();
 			ss << leter << "\r\n";
 			trace(ss.str().c_str());
-			
-			//RecolorSegment(rows, width, height, segment_color, SEGMENTS[big++%6]);
 		} else {
 			RecolorSegment(rows, width, height, segment_color, BLACK);
 		}
 	}
+	
+	// FIND WHOLE SATURN's
+	for (const SegmentData& S : letter_segments['S']) {
+	for (const SegmentData& N : letter_segments['N']) {
+	for (const SegmentData& A : letter_segments['A']) {
+		if (!isBetween(A, S, N))
+			continue;
+	for (const SegmentData& T : letter_segments['T']) {
+		if (!isBetween(T, A, N))
+			continue;
+	for (const SegmentData& U : letter_segments['U']) {
+		if (!isBetween(U, T, N))
+			continue;
+	for (const SegmentData& R : letter_segments['R']) {
+		if (!isBetween(R, U, N))
+			continue;
+		// YEY, WHOLE SATURN FOUND
+		SATURN saturn = {S,A,T,U,R,N};
+		saturns.push_back(saturn);
+	}
+	}
+	}
+	}
+	}
+	}
+	rows[0][0] = WHITE;
+	for (SATURN& s : saturns) {
+		RecolorSegment(rows, width, height, s.S.color, SEGMENTS[0]);
+		RecolorSegment(rows, width, height, s.A.color, SEGMENTS[1]);
+		RecolorSegment(rows, width, height, s.T.color, SEGMENTS[2]);
+		RecolorSegment(rows, width, height, s.U.color, SEGMENTS[3]);
+		RecolorSegment(rows, width, height, s.R.color, SEGMENTS[4]);
+		RecolorSegment(rows, width, height, s.N.color, SEGMENTS[5]);
+	}
 	ss.str(""); ss.clear();
-	ss << "\r\n";
+	ss << saturns.size() << "\r\n";
 	trace(ss.str().c_str());
 }
 
