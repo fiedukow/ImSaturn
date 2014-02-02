@@ -21,6 +21,7 @@
 #include <set>
 #include <limits>
 #include <iomanip>
+#include <map>
 
 #include "dibdoc.h"
 #include "dibview.h"
@@ -390,7 +391,7 @@ void CDibDoc::DoLab2(CView* view) {
 }
 
 bool isLogoPart(RGBTRIPLE px) {
-	return gray(px) > 210;
+	return gray(px) > 220;
 }
 
 bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
@@ -505,27 +506,13 @@ int SegmentsMarker(RGBTRIPLE** rows, int width, int height) {
 	for (int x = 0, y = 0; x < width; ++x)
 		rows[y][x] = BLACK;
 
-	for (int x = 1; x < width; ++x)
-	for (int y = 1; y < height; ++y) {
+	for (int x = 1; x < width; x += 4)
+	for (int y = 1; y < height; y += 4) {
 		const RGBTRIPLE this_color = rows[y][x];
-		if (this_color == BLACK)
+		if (this_color != WHITE)
 			continue;
-		
-		RGBTRIPLE top = rows[y-1][x];
-		RGBTRIPLE left = rows[y][x-1];
-		if (top != BLACK && left != BLACK &&
-			top != left) {
-			rows[y][x] = top;
-			Recolor(rows, x-1, y, width, height, top);
-		} else if (top != BLACK) {
-			rows[y][x] = top;
-		} else if (left != BLACK) {
-			rows[y][x] = left;
-		} else {
-			rows[y][x] = getNextSegmentColor(segment_color);
-			segments++;
-		}
-		assert(rows[y][x] == top || top == BLACK);
+		Recolor(rows, x, y, width, height, getNextSegmentColor(segment_color));
+		segments++;
 	}
 	return segments;
 }
@@ -538,35 +525,18 @@ void RecolorSegment(RGBTRIPLE** rows, int width, int height, RGBTRIPLE from, RGB
 	}
 }
 
-#define S_N2_MIN 0.03800
-#define A_N2_MIN 0.02375
-#define T_N2_MIN 0.10735
-#define U_N2_MIN 0.01805
-#define R_N2_MIN 0.02185
-#define N_N2_MIN 0.00560
-
-#define S_N2_MAX 0.04200
-#define A_N2_MAX 0.02625
-#define T_N2_MAX 0.11865
-#define U_N2_MAX 0.01995
-#define R_N2_MAX 0.02415
-#define N_N2_MAX 0.00840
-
-char letter(double m2) {
-	if (m2 >= S_N2_MIN && m2 <= S_N2_MAX)
-		return 'S';
-	if (m2 >= A_N2_MIN && m2 <= A_N2_MAX)
-		return 'A';
-	if (m2 >= T_N2_MIN && m2 <= T_N2_MAX)
+char letter(double M[11]) {
+	if (M[5] > 0.000001)
 		return 'T';
-	if (m2 >= U_N2_MIN && m2 <= U_N2_MAX)
+	if (M[9] < -0.00001)
+		return 'A';
+	if (M[3] > 0.0001)
 		return 'U';
-	if (m2 >= R_N2_MIN && m2 <= R_N2_MAX)
+	if (M[2] > 0.025)
+		return 'S';
+	if (M[4] > 0.00002)
 		return 'R';
-	if (m2 >= N_N2_MIN && m2 <= N_N2_MAX)
-		return 'N';
-
-	return 'X';
+	return 'N';
 }
 
 double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height, RGBTRIPLE color) {
@@ -585,12 +555,27 @@ double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height
   return l;  
 }
 
-#define m(p,q) mpq(rows,x1,y1,x2,y2,segment_color,(p),(q))
-#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,segment_color,(p),(q))
+#define m(p,q) mpq(rows,x1,y1,x2,y2,current_color,(p),(q))
+#define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,current_color,(p),(q))
 #define N(p,q) M(((double)p),((double)q))/pow(m(0,0), ((((double)p)+((double)q))/2) + 1)
+// THIS DEFINES FOLOWING VARIABLES FOR GIVEN SEGMENT ACTIVATING USAGE OF m, M and N macros
+// int x1,y1,x2,y2 - bounding rectangle of segment
+// ax, ay - the center of the gravity of the segment
+// sm - field of segment in pixels
+// current_color - collor of current segment
+#define PREPARE_MOMENTUM_MACROS(segment_color) \
+	int x1, y1, x2, y2; \
+	double ay, ax, sm; \
+	RGBTRIPLE current_color = segment_color; \
+	BoundingRect(rows, width, height, &x1, &y1, &x2, &y2, (current_color)); \
+	sm = m(0,0); \
+	ay = m(0,1)/sm; \
+	ax = m(1,0)/sm; \
+
 
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
+	std::map<char, RGBTRIPLE> letter_segments;
 
 	RGBTRIPLE* rows[1000];
 	int width, height;
@@ -601,24 +586,8 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	RGBTRIPLE segment_color = { 127, 0, 0 };
 	int big = 0;
 	for (int i = 0; i < segments_found; ++i) {
-		getNextSegmentColor(segment_color);
-		int x1, y1, x2, y2;
-		BoundingRect(rows, width, height, &x1, &y1, &x2, &y2, segment_color);
-	 	double sm = m(0,0);
-	 	double ay = m(0,1)/sm;
-	 	double ax = m(1,0)/sm;			
-
-		//if (sm > 200) {
-		if (sm > 73 && sm < 150) {
-			double l = L(rows, x1, y1, x2, y2, width, height, segment_color);
-			double W3 = (l / (2 * sqrt(M_PI*sm))) - 1;
-			ss.str(""); ss.clear();
-			ss << W3 << "\r\n";
-			trace(ss.str().c_str());
-	 		//ss.str(""); ss.clear();			
-	 		//ss << "Srodek Ciezkosci = (" << ax << ", " << ay << "); Pole z mpq = " << sm << "\r\n";
-	 		//trace(ss.str().c_str());
-			
+		PREPARE_MOMENTUM_MACROS(getNextSegmentColor(segment_color));
+		if (sm > 15) { // SEGMENTY O POLU PONI¯EJ 16px S¥ IGNOROWANE JAKO SZUM
 			double NM[11]; //ZERO WILL NOT BE USED
 			NM[1] = N(2, 0) + N(0, 2);
 			NM[2] = pow(N(2,0) - N(0,2), 2) + 4 * pow(N(1,1), 2);			
@@ -630,16 +599,13 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 			NM[8] = N(3,0)*N(1,2) + N(2,1)*N(0,3) - pow(N(1,2), 2) - pow(N(2,1), 2);
 			NM[9] = N(2,0)*(N(2,1)*N(0,3) - pow(N(1,2), 2)) + N(0,2)*(N(3,0)*N(1,2) - pow(N(2,1), 2)) - N(1,1)*(N(3,0)*N(0,3) - N(2,1)*N(1,2));
 			NM[10] = pow(N(3,0)*N(0,3) - N(1,2)*N(2,1), 2) - 4*(N(3,0)*N(1,2) - pow(N(2,1), 2))*(N(0,3)*N(2,1) - N(1,2));
-			char leter = letter(NM[2]);		
+			char leter = letter(NM);
 
-			/*ss.str(""); ss.clear();
-			for (int i = 1; i <= 10; ++i)
-				ss << std::fixed << std::setprecision(10) << std::showpoint 
-				   << NM[i] << "\t";
-			ss << "\r\n";
-			trace(ss.str().c_str());*/
+			ss.str(""); ss.clear();
+			ss << leter << "\r\n";
+			trace(ss.str().c_str());
 			
-			RecolorSegment(rows, width, height, segment_color, SEGMENTS[big++%6]);
+			//RecolorSegment(rows, width, height, segment_color, SEGMENTS[big++%6]);
 		} else {
 			RecolorSegment(rows, width, height, segment_color, BLACK);
 		}
