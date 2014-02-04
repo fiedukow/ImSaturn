@@ -642,6 +642,8 @@ bool isNear(SegmentData first, SegmentData second) {
 	return (second.x1 - first.x2) < dst_max;
 }
 
+#define BACKGR
+
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
 	std::map<char, std::vector<SegmentData>> letter_segments;
@@ -682,11 +684,7 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 			char leter = letter(NM);
 			SegmentData data = { segment_color, x1, y1, x2, y2, ax, ay, leter };
 			letter_segments[leter].push_back(data);
-			RecolorSegment(rows, width, height, segment_color, lColor(leter));
-
-			ss.str(""); ss.clear();
-			ss << leter << "\r\n";
-			trace(ss.str().c_str());
+			RecolorSegment(rows, width, height, segment_color, lColor(leter));			
 		} else {
 			RecolorSegment(rows, width, height, segment_color, BLACK);
 		}
