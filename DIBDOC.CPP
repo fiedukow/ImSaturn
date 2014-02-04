@@ -34,6 +34,8 @@
 static char BASED_CODE THIS_FILE[] = __FILE__;
 #endif
 
+bool last_direction;
+
 /////////////////////////////////////////////////////////////////////////////
 // CDibDoc
 
@@ -633,7 +635,9 @@ void drawBR(RGBTRIPLE** rows, int x1, int y1, int x2, int y2) {
 	}
 }
 
-bool isNear(const SegmentData& first, const SegmentData& second) {
+bool isNear(SegmentData first, SegmentData second) {
+	if (!last_direction)
+		std::swap(first, second);
 	double dst_max = (0.5 * (((first.x2 - first.x1) + (second.x2 - second.x1))/2.0)); 
 	return (second.x1 - first.x2) < dst_max;
 }
@@ -691,25 +695,25 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	// FIND WHOLE SATURN's
 	for (const SegmentData& S : letter_segments['S']) {
 	for (const SegmentData& N : letter_segments['N']) {
-		if (N.ax <= S.ax)
-			continue;
+		bool direction = N.ax > S.ax;
+		last_direction = direction;
 	for (const SegmentData& A : letter_segments['A']) {
-		if (!isBetween(A, S, N))
+		if (direction ? !isBetween(A, S, N) : !isBetween(A, N, S))
 			continue;
 		if (!isNear(S, A))
 			continue;
 	for (const SegmentData& T : letter_segments['T']) {
-		if (!isBetween(T, A, N))
+		if (direction ? !isBetween(T, A, N) : !isBetween(T, N, A))
 			continue;
 		if (!isNear(A, T))
 			continue;
 	for (const SegmentData& U : letter_segments['U']) {
-		if (!isBetween(U, T, N))
+		if (direction ? !isBetween(U, T, N) : !isBetween(U, N, T))
 			continue;
 		if (!isNear(T, U))
 			continue;
 	for (const SegmentData& R : letter_segments['R']) {
-		if (!isBetween(R, U, N))
+		if (direction ? !isBetween(R, U, N) : !isBetween(R, N, U))
 			continue;
 		if (!isNear(U, R))
 			continue;
