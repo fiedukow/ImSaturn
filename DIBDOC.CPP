@@ -533,13 +533,11 @@ char letter(double M[11]) {
 		return 'A';
 	if (M[2] > 0.025)
 		return 'S';
-	if (M[9] < -0.000002 && M[3] > 0.0001)
+	if ((M[9] < -0.000001 && M[3] > 0.0001) || M[8] < -0.00005)
 		return 'U';
-	if (M[5] < 0.0000000001 && M[5] >= 0)
-		return 'N';
-	/*if (M[3] > 0.0001)
-		return 'U';*/
-	return 'R';
+	if (M[6] > 0.0000002 || M[4] > 0.00001)
+		return 'R';
+	return 'N';
 }
 
 double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height, RGBTRIPLE color) {
@@ -623,11 +621,15 @@ bool isBetween(const SegmentData& what, const SegmentData& first, const SegmentD
 void drawBR(RGBTRIPLE** rows, int x1, int y1, int x2, int y2) {
 	for (int x = x1; x <= x2; ++x) {
 		rows[y1][x] = SEGMENTS[0];
+		rows[y1-1][x] = SEGMENTS[0];
 		rows[y2][x] = SEGMENTS[0];
+		rows[y2+1][x] = SEGMENTS[0];
 	}
 	for (int y = y1; y <= y2; ++y) {
 		rows[y][x1] = SEGMENTS[0];
+		rows[y][x1-1] = SEGMENTS[0];
 		rows[y][x2] = SEGMENTS[0];
+		rows[y][x2+1] = SEGMENTS[0];
 	}
 }
 
@@ -640,11 +642,21 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	std::stringstream ss;
 	std::map<char, std::vector<SegmentData>> letter_segments;
 	std::vector<SATURN> saturns;
-
+	RGBTRIPLE* rows_origin[1000];
 	RGBTRIPLE* rows[1000];
-	int width, height;
+	int width, height;	
+#ifdef BACKGR
+	if (!GetDIBRowsRGB(m_hDIB,rows_origin,&width,&height))
+		return;
+	for (int i = 0; i < 1000; ++i)
+		rows[i] = new RGBTRIPLE[1000];
+	for (int x = 0; x < width; ++x)
+	for (int y = 0; y < height; ++y)
+		rows[y][x] = rows_origin[y][x];
+#else
 	if (!GetDIBRowsRGB(m_hDIB,rows,&width,&height))
 		return;
+#endif
 	ToBnW(rows, width, height);
 	int segments_found = SegmentsMarker(rows, width, height);
 	RGBTRIPLE segment_color = { 127, 0, 0 };
@@ -722,7 +734,11 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 		RecolorSegment(rows, width, height, s.N.color, SEGMENTS[5]);
 		int x1,y1,x2,y2;
 		s.boundingRect(x1,y1,x2,y2);
+#ifdef BACKGR
+		drawBR(rows_origin, x1, y1, x2, y2);
+#else
 		drawBR(rows, x1, y1, x2, y2);
+#endif
 	}
 	ss.str(""); ss.clear();
 	ss << saturns.size() << "\r\n";
