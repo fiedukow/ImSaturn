@@ -392,7 +392,7 @@ void CDibDoc::DoLab2(CView* view) {
 }
 
 bool isLogoPart(RGBTRIPLE px) {
-	return gray(px) > 210;
+	return gray(px) > 205;
 }
 
 bool operator==(const RGBTRIPLE& first,  const RGBTRIPLE& second) {
@@ -529,15 +529,17 @@ void RecolorSegment(RGBTRIPLE** rows, int width, int height, RGBTRIPLE from, RGB
 char letter(double M[11]) {
 	if (M[5] > 0.000001)
 		return 'T';
-	if (M[9] < -0.00001)
+	if (M[9] < -0.00002)
 		return 'A';
-	if (M[3] > 0.0001)
-		return 'U';
 	if (M[2] > 0.025)
 		return 'S';
-	if (M[4] > 0.00002)
-		return 'R';
-	return 'N';
+	if (M[9] < -0.000002 && M[3] > 0.0001)
+		return 'U';
+	if (M[5] < 0.0000000001 && M[5] >= 0)
+		return 'N';
+	/*if (M[3] > 0.0001)
+		return 'U';*/
+	return 'R';
 }
 
 double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height, RGBTRIPLE color) {
@@ -555,6 +557,40 @@ double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height
     }
   return l;  
 }
+
+RGBTRIPLE lColor(char l) {
+	switch(l) {
+	case 'S': return SEGMENTS[0];
+	case 'A': return SEGMENTS[1];
+	case 'T': return SEGMENTS[2];
+	case 'U': return SEGMENTS[3];
+	case 'R': return SEGMENTS[4];
+	case 'N': return SEGMENTS[5];
+	default:
+		return BLACK;
+	}
+}
+
+
+struct SegmentData {
+	RGBTRIPLE color;
+	int x1,y1,x2,y2;
+	double ax, ay;
+	char letter;
+};
+
+struct SATURN {
+	SegmentData S, A, T, U, R, N;
+	void boundingRect(int& x1, int& y1, int& x2, int& y2) {
+		x1 = S.x1; x2 = S.x2; y1 = S.y1; y2 = S.y2;
+		x1 = min(x1, A.x1); x2 = max(x2, A.x2); y1 = min(y1, A.y1); y2 = max(y2, A.y2);
+		x1 = min(x1, T.x1); x2 = max(x2, T.x2); y1 = min(y1, T.y1); y2 = max(y2, T.y2);
+		x1 = min(x1, U.x1); x2 = max(x2, U.x2); y1 = min(y1, U.y1); y2 = max(y2, U.y2);
+		x1 = min(x1, R.x1); x2 = max(x2, R.x2); y1 = min(y1, R.y1); y2 = max(y2, R.y2);
+		x1 = min(x1, N.x1); x2 = max(x2, N.x2); y1 = min(y1, N.y1); y2 = max(y2, N.y2);
+	}
+};
+
 
 #define m(p,q) mpq(rows,x1,y1,x2,y2,current_color,(p),(q))
 #define M(p,q) Mpq(rows,x1,y1,x2,y2,ax,ay,current_color,(p),(q))
@@ -574,23 +610,30 @@ double L(RGBTRIPLE** rows, int x1, int y1, int x2, int y2, int width, int height
 	ax = m(1,0)/sm; \
 
 
-struct SegmentData {
-	RGBTRIPLE color;
-	int x1,y1,x2,y2;
-	double ax, ay;
-	char letter;
-};
-
-struct SATURN {
-	SegmentData S, A, T, U, R, N;
-};
-
 bool isBetween(const SegmentData& what, const SegmentData& first, const SegmentData& second) {
 	double a, b, d;
+	if (what.ax <= first.ax || what.ax >= second.ax)
+		return false;
 	a = (second.ay - first.ay)/(second.ax - first.ax);
 	b = first.ay - first.ax*a;
-	d = std::abs(-a*what.ax + what.ay - b)/sqrt(pow(a,2) + 1);
-	return d < 15;
+	d = std::abs(-a*what.ax + what.ay - b)/sqrt(pow(a,2) + 1);	
+	return d < 5.0;
+}
+
+void drawBR(RGBTRIPLE** rows, int x1, int y1, int x2, int y2) {
+	for (int x = x1; x <= x2; ++x) {
+		rows[y1][x] = SEGMENTS[0];
+		rows[y2][x] = SEGMENTS[0];
+	}
+	for (int y = y1; y <= y2; ++y) {
+		rows[y][x1] = SEGMENTS[0];
+		rows[y][x2] = SEGMENTS[0];
+	}
+}
+
+bool isNear(const SegmentData& first, const SegmentData& second) {
+	double dst_max = (0.5 * (((first.x2 - first.x1) + (second.x2 - second.x1))/2.0)); 
+	return (second.x1 - first.x2) < dst_max;
 }
 
 void CDibDoc::BnWCalculate(CView * view, int green_value) {
@@ -623,6 +666,7 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 			char leter = letter(NM);
 			SegmentData data = { segment_color, x1, y1, x2, y2, ax, ay, leter };
 			letter_segments[leter].push_back(data);
+			RecolorSegment(rows, width, height, segment_color, lColor(leter));
 
 			ss.str(""); ss.clear();
 			ss << leter << "\r\n";
@@ -635,17 +679,29 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 	// FIND WHOLE SATURN's
 	for (const SegmentData& S : letter_segments['S']) {
 	for (const SegmentData& N : letter_segments['N']) {
+		if (N.ax <= S.ax)
+			continue;
 	for (const SegmentData& A : letter_segments['A']) {
 		if (!isBetween(A, S, N))
+			continue;
+		if (!isNear(S, A))
 			continue;
 	for (const SegmentData& T : letter_segments['T']) {
 		if (!isBetween(T, A, N))
 			continue;
+		if (!isNear(A, T))
+			continue;
 	for (const SegmentData& U : letter_segments['U']) {
 		if (!isBetween(U, T, N))
 			continue;
+		if (!isNear(T, U))
+			continue;
 	for (const SegmentData& R : letter_segments['R']) {
 		if (!isBetween(R, U, N))
+			continue;
+		if (!isNear(U, R))
+			continue;
+		if (!isNear(R, N))
 			continue;
 		// YEY, WHOLE SATURN FOUND
 		SATURN saturn = {S,A,T,U,R,N};
@@ -664,6 +720,9 @@ void CDibDoc::BnWCalculate(CView * view, int green_value) {
 		RecolorSegment(rows, width, height, s.U.color, SEGMENTS[3]);
 		RecolorSegment(rows, width, height, s.R.color, SEGMENTS[4]);
 		RecolorSegment(rows, width, height, s.N.color, SEGMENTS[5]);
+		int x1,y1,x2,y2;
+		s.boundingRect(x1,y1,x2,y2);
+		drawBR(rows, x1, y1, x2, y2);
 	}
 	ss.str(""); ss.clear();
 	ss << saturns.size() << "\r\n";
